@@ -38,46 +38,21 @@ win.webContents.on('input-event', (_, event) => {
 })
 ```
 
-### Removed: `webContents.incrementCapturerCount(stayHidden, stayAwake)`
+## Behavior Changed: Locations of undocumented `cache`/`userCache` paths changed
 
-The `webContents.incrementCapturerCount(stayHidden, stayAwake)` function has been removed.
-It is now automatically handled by `webContents.capturePage` when a page capture completes.
-
-```js
-const w = new BrowserWindow({ show: false })
-
-// Removed in Electron 23
-w.webContents.incrementCapturerCount()
-w.capturePage().then(image => {
-  console.log(image.toDataURL())
-  w.webContents.decrementCapturerCount()
-})
-
-// Replace with
-w.capturePage().then(image => {
-  console.log(image.toDataURL())
-})
-```
-
-### Removed: `webContents.decrementCapturerCount(stayHidden, stayAwake)`
-
-The `webContents.decrementCapturerCount(stayHidden, stayAwake)` function has been removed.
-It is now automatically handled by `webContents.capturePage` when a page capture completes.
+The `cache`/`userCache` paths of `app.getPath` API were undocumented and
+pointing to wrong locations on Windows in previous versions, if your app was
+relying on the undocumented behavior you might need to add code to clear old
+cache data and check if the new locations would cause conflicts.
 
 ```js
-const w = new BrowserWindow({ show: false })
+// On Windows in Electron 23
+app.getPath('cache') // returns %LOCALAPPDATA%
+app.getPath('userCache') // returns %LOCALAPPDATA%/AppName
 
-// Removed in Electron 23
-w.webContents.incrementCapturerCount()
-w.capturePage().then(image => {
-  console.log(image.toDataURL())
-  w.webContents.decrementCapturerCount()
-})
-
-// Replace with
-w.capturePage().then(image => {
-  console.log(image.toDataURL())
-})
+// On Windows in Electron 22
+app.getPath('cache') // returns %APPDATA%
+app.getPath('userCache') // returns %APPDATA%/AppName
 ```
 
 ## Planned Breaking API Changes (22.0)
