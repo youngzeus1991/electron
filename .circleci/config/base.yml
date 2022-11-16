@@ -1590,7 +1590,7 @@ jobs:
   linux-x64-testing:
     executor:
       name: linux-docker
-      size: xlarge
+      size: 2xlarge
     environment:
       <<: *env-global
       <<: *env-testing-build
