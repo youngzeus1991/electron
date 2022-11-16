@@ -18,14 +18,7 @@ gtk_visibility.patch
 sysroot.patch
 resource_file_conflict.patch
 scroll_bounce_flag.patch
-mas_blink_no_private_api.patch
-mas_no_private_api.patch
-mas-cgdisplayusesforcetogray.patch
-mas_disable_remote_layer.patch
-mas_disable_remote_accessibility.patch
-mas_disable_custom_window_frame.patch
-mas_avoid_usage_of_private_macos_apis.patch
-mas_use_public_apis_to_determine_if_a_font_is_a_system_font.patch
+mas_avoid_private_macos_api_usage.patch
 chrome_key_systems.patch
 add_didinstallconditionalfeatures.patch
 desktop_media_list.patch
@@ -123,4 +116,3 @@ fix_remove_caption-removing_style_call.patch
 build_allow_electron_to_use_exec_script.patch
 revert_use_accessibility_pkey_when_setting_page_access.patch
 roll_clang_llvmorg-16-init-8189-g97196a2d-2.patch
-build_only_use_the_mas_build_config_in_the_required_components.patch
