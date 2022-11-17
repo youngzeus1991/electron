@@ -172,9 +172,6 @@ env-mac-large-release: &env-mac-large-release
 env-ninja-status: &env-ninja-status
   NINJA_STATUS: "[%r processes, %f/%t @ %o/s : %es] "
 
-env-disable-run-as-node: &env-disable-run-as-node
-  GN_BUILDFLAG_ARGS: 'enable_run_as_node = false'
-
 env-32bit-release: &env-32bit-release
   # Set symbol level to 1 for 32 bit releases because of https://crbug.com/648948
   GN_BUILDFLAG_ARGS: 'symbol_level = 1'
@@ -1673,7 +1670,7 @@ jobs:
   linux-x64-testing:
     executor:
       name: linux-docker
-      size: xlarge
+      size: 2xlarge
     environment:
       <<: *env-global
       <<: *env-testing-build
@@ -1685,6 +1682,13 @@ jobs:
           checkout: false
           checkout-and-assume-cache: true
           artifact-key: 'linux-x64'
+          after-build-and-save:
+            - run:
+                name: Configuring MAS build
+                command: |
+                  echo 'export GN_EXTRA_ARGS="enable_run_as_node = false $GN_EXTRA_ARGS"' >> $BASH_ENV
+            - build_and_save_artifacts:
+                artifact-key: 'linux-x64-no-run-as-node'
 
   linux-x64-testing-asan:
     executor:
@@ -1703,22 +1707,6 @@ jobs:
           checkout: true
           build-nonproprietary-ffmpeg: false
           artifact-key: 'linux-x64-asan'
-
-  linux-x64-testing-no-run-as-node:
-    executor:
-      name: linux-docker
-      size: xlarge
-    environment:
-      <<: *env-linux-2xlarge
-      <<: *env-testing-build
-      <<: *env-ninja-status
-      <<: *env-disable-run-as-node
-      GCLIENT_EXTRA_ARGS: '--custom-var=checkout_arm=True --custom-var=checkout_arm64=True'
-    steps:
-      - electron-build:
-          persist: false
-          checkout: true
-          artifact-key: 'linux-x64-no-run-as-node'
 
   linux-x64-testing-gn-check:
     executor:
@@ -2187,9 +2175,6 @@ workflows:
           requires:
             - linux-make-src-cache
       - linux-x64-testing-asan:
-          requires:
-            - linux-make-src-cache
-      - linux-x64-testing-no-run-as-node:
           requires:
             - linux-make-src-cache
       - linux-x64-testing-gn-check:
