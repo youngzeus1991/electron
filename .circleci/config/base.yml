@@ -97,16 +97,6 @@ env-headless-testing: &env-headless-testing
 env-stack-dumping: &env-stack-dumping
   ELECTRON_ENABLE_STACK_DUMPING: '1'
 
-env-browsertests: &env-browsertests
-  GN_CONFIG: //electron/build/args/native_tests.gn
-  BUILD_TARGET: electron/spec:chromium_browsertests
-  TESTS_CONFIG: src/electron/spec/configs/browsertests.yml
-
-env-unittests: &env-unittests
-  GN_CONFIG: //electron/build/args/native_tests.gn
-  BUILD_TARGET: electron/spec:chromium_unittests
-  TESTS_CONFIG: src/electron/spec/configs/unittests.yml
-
 env-arm: &env-arm
   GN_EXTRA_ARGS: 'target_cpu = "arm"'
   MKSNAPSHOT_TOOLCHAIN: //build/toolchain/linux:clang_arm
@@ -1042,7 +1032,7 @@ commands:
           clean-prebuilt-snapshot: false
       - *step-maybe-electron-dist-strip
       - step-electron-dist-build:
-          additional-targets: shell_browser_ui_unittests third_party/electron_node:headers third_party/electron_node:overlapped-checker electron:hunspell_dictionaries_zip
+          additional-targets: third_party/electron_node:headers third_party/electron_node:overlapped-checker electron:hunspell_dictionaries_zip
 
       - *step-show-goma-stats
 
@@ -1398,9 +1388,11 @@ commands:
                 condition: << parameters.persist >>
                 steps:
                   - *step-minimize-workspace-size-from-checkout
-                  - run: |
-                      rm -rf src/third_party/electron_node/deps/openssl
-                      rm -rf src/third_party/electron_node/deps/v8
+                  - run:
+                      name: Remove electron_node extraneous folders
+                      command: |
+                        rm -rf src/third_party/electron_node/deps/openssl
+                        rm -rf src/third_party/electron_node/deps/v8
                   - persist_to_workspace:
                       root: .
                       paths:
@@ -1413,7 +1405,6 @@ commands:
                         - src/third_party/nan
                         - src/cross-arch-snapshots
                         - src/third_party/llvm-build
-                        - src/build/linux
                         - src/buildtools/third_party/libc++
                         - src/buildtools/third_party/libc++abi
                         - src/out/Default/obj/buildtools/third_party
