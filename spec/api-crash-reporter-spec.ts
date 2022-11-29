@@ -184,7 +184,9 @@ ifdescribe(!isLinuxOnArm && !process.mas && !process.env.DISABLE_CRASH_REPORTER_
       expect(crash.rendererSpecific).to.be.undefined();
     });
 
-    ifit(!isLinuxOnArm)('ensure child process args are not modified', async () => {
+    // TODO(vertedinde): Ensures that passing in the crashpadHandlerPID flag
+    // does not affect child proocess args. Flaky on winia32.
+    ifit(process.platform === 'linux')('ensure linux child process args are not modified', async () => {
       const { port, waitForCrash } = await startServer();
       let exitCode: number | null = null;
       const appPath = path.join(__dirname, 'fixtures', 'apps', 'crash');
