@@ -130,6 +130,11 @@ void ElectronPermissionManager::SetDevicePermissionHandler(
   device_permission_handler_ = handler;
 }
 
+void ElectronPermissionManager::SetBluetoothPairingHandler(
+    const BluetoothPairingHandler& handler) {
+  bluetooth_pairing_handler_ = handler;
+}
+
 void ElectronPermissionManager::RequestPermission(
     blink::PermissionType permission,
     content::RenderFrameHost* render_frame_host,
@@ -253,6 +258,16 @@ blink::mojom::PermissionStatus ElectronPermissionManager::GetPermissionStatus(
                  : blink::mojom::PermissionStatus::DENIED;
 }
 
+content::PermissionResult
+ElectronPermissionManager::GetPermissionResultForOriginWithoutContext(
+    blink::PermissionType permission,
+    const url::Origin& origin) {
+  blink::mojom::PermissionStatus status =
+      GetPermissionStatus(permission, origin.GetURL(), origin.GetURL());
+  return content::PermissionResult(
+      status, content::PermissionStatusSource::UNSPECIFIED);
+}
+
 ElectronPermissionManager::SubscriptionId
 ElectronPermissionManager::SubscribePermissionStatusChange(
     blink::PermissionType permission,
@@ -265,6 +280,18 @@ ElectronPermissionManager::SubscribePermissionStatusChange(
 
 void ElectronPermissionManager::UnsubscribePermissionStatusChange(
     SubscriptionId id) {}
+
+void ElectronPermissionManager::CheckBluetoothDevicePair(
+    gin_helper::Dictionary details,
+    PairCallback pair_callback) const {
+  if (bluetooth_pairing_handler_.is_null()) {
+    base::Value::Dict response;
+    response.Set("confirmed", false);
+    std::move(pair_callback).Run(std::move(response));
+  } else {
+    bluetooth_pairing_handler_.Run(details, std::move(pair_callback));
+  }
+}
 
 bool ElectronPermissionManager::CheckPermissionWithDetails(
     blink::PermissionType permission,
@@ -339,9 +366,16 @@ blink::mojom::PermissionStatus
 ElectronPermissionManager::GetPermissionStatusForCurrentDocument(
     blink::PermissionType permission,
     content::RenderFrameHost* render_frame_host) {
-  return GetPermissionStatus(
-      permission, render_frame_host->GetLastCommittedOrigin().GetURL(),
-      content::PermissionUtil::GetLastCommittedOriginAsURL(render_frame_host));
+  base::Value::Dict details;
+  details.Set("embeddingOrigin",
+              content::PermissionUtil::GetLastCommittedOriginAsURL(
+                  render_frame_host->GetMainFrame())
+                  .spec());
+  bool granted = CheckPermissionWithDetails(
+      permission, render_frame_host,
+      render_frame_host->GetLastCommittedOrigin().GetURL(), std::move(details));
+  return granted ? blink::mojom::PermissionStatus::GRANTED
+                 : blink::mojom::PermissionStatus::DENIED;
 }
 
 blink::mojom::PermissionStatus

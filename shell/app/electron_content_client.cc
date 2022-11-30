@@ -43,8 +43,7 @@
 #endif  // BUILDFLAG(ENABLE_PDF_VIEWER)
 
 #if BUILDFLAG(ENABLE_PLUGINS)
-#include "content/public/browser/plugin_service.h"
-#include "content/public/common/pepper_plugin_info.h"
+#include "content/public/common/content_plugin_info.h"
 #include "ppapi/shared_impl/ppapi_permissions.h"
 #include "ppapi/shared_impl/ppapi_switches.h"  // nogncheck crbug.com/1125897
 #endif                                         // BUILDFLAG(ENABLE_PLUGINS)
@@ -106,11 +105,11 @@ bool IsWidevineAvailable(
 #endif  // BUILDFLAG(ENABLE_WIDEVINE)
 
 #if BUILDFLAG(ENABLE_PLUGINS)
-void ComputeBuiltInPlugins(std::vector<content::PepperPluginInfo>* plugins) {
+void ComputeBuiltInPlugins(std::vector<content::ContentPluginInfo>* plugins) {
 #if BUILDFLAG(ENABLE_PDF_VIEWER)
   // TODO(upstream/thestig): Figure out how to make the PDF Viewer work without
   // this PPAPI plugin registration.
-  content::PepperPluginInfo pdf_info;
+  content::ContentPluginInfo pdf_info;
   pdf_info.is_internal = true;
   pdf_info.is_out_of_process = true;
   pdf_info.name = kPDFInternalPluginName;
@@ -121,20 +120,6 @@ void ComputeBuiltInPlugins(std::vector<content::PepperPluginInfo>* plugins) {
                                            "Portable Document Format");
   pdf_info.mime_types.push_back(pdf_mime_type);
   plugins->push_back(pdf_info);
-
-  // NB. in Chrome, this plugin isn't registered until the PDF extension is
-  // loaded. However, in Electron, we load the PDF extension unconditionally
-  // when it is enabled in the build, so we're OK to load the plugin eagerly
-  // here.
-  content::WebPluginInfo info;
-  info.type = content::WebPluginInfo::PLUGIN_TYPE_BROWSER_PLUGIN;
-  info.name = base::ASCIIToUTF16(kPDFExtensionPluginName);
-  // This isn't a real file path; it's just used as a unique identifier.
-  info.path = base::FilePath::FromUTF8Unsafe(extension_misc::kPdfExtensionId);
-  info.background_color = content::WebPluginInfo::kDefaultBackgroundColor;
-  info.mime_types.emplace_back(kPDFMimeType, "pdf", "Portable Document Format");
-  content::PluginService::GetInstance()->RefreshPlugins();
-  content::PluginService::GetInstance()->RegisterInternalPlugin(info, true);
 #endif  // BUILDFLAG(ENABLE_PDF_VIEWER)
 }
 #endif  // BUILDFLAG(ENABLE_PLUGINS)
@@ -217,8 +202,8 @@ void ElectronContentClient::AddAdditionalSchemes(Schemes* schemes) {
 #endif
 }
 
-void ElectronContentClient::AddPepperPlugins(
-    std::vector<content::PepperPluginInfo>* plugins) {
+void ElectronContentClient::AddPlugins(
+    std::vector<content::ContentPluginInfo>* plugins) {
 #if BUILDFLAG(ENABLE_PLUGINS)
   ComputeBuiltInPlugins(plugins);
 #endif  // BUILDFLAG(ENABLE_PLUGINS)

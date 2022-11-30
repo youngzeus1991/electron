@@ -349,7 +349,8 @@ InspectableWebContents::InspectableWebContents(
       web_contents_(std::move(web_contents)),
       is_guest_(is_guest),
       view_(CreateInspectableContentsView(this)) {
-  const base::Value* bounds_dict = pref_service_->Get(kDevToolsBoundsPref);
+  const base::Value* bounds_dict =
+      &pref_service_->GetValue(kDevToolsBoundsPref);
   if (bounds_dict->is_dict()) {
     devtools_bounds_ = DictionaryToRect(bounds_dict);
     // Sometimes the devtools window is out of screen or has too small size.
@@ -572,10 +573,10 @@ void InspectableWebContents::LoadCompleted() {
     SetIsDocked(DispatchCallback(), false);
   } else {
     if (dock_state_.empty()) {
-      const base::Value* prefs =
-          pref_service_->GetDictionary(kDevToolsPreferences);
+      const base::Value::Dict& prefs =
+          pref_service_->GetDict(kDevToolsPreferences);
       const std::string* current_dock_state =
-          prefs->FindStringKey("currentDockState");
+          prefs.FindString("currentDockState");
       base::RemoveChars(*current_dock_state, "\"", &dock_state_);
     }
     std::u16string javascript = base::UTF8ToUTF16(
@@ -856,14 +857,13 @@ void InspectableWebContents::SendJsonRequest(DispatchCallback callback,
 }
 
 void InspectableWebContents::GetPreferences(DispatchCallback callback) {
-  const base::Value* prefs = pref_service_->GetDictionary(kDevToolsPreferences);
-  std::move(callback).Run(prefs);
+  const base::Value& prefs = pref_service_->GetValue(kDevToolsPreferences);
+  std::move(callback).Run(&prefs);
 }
 
 void InspectableWebContents::GetPreference(DispatchCallback callback,
                                            const std::string& name) {
-  if (auto* pref =
-          pref_service_->GetDictionary(kDevToolsPreferences)->FindKey(name)) {
+  if (auto* pref = pref_service_->GetDict(kDevToolsPreferences).Find(name)) {
     std::move(callback).Run(pref);
     return;
   }

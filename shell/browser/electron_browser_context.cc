@@ -17,7 +17,6 @@
 #include "base/strings/escape.h"
 #include "base/strings/string_util.h"
 #include "base/threading/sequenced_task_runner_handle.h"
-#include "base/threading/thread_restrictions.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
@@ -31,8 +30,11 @@
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"  // nogncheck
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/cors_origin_pattern_setter.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/shared_cors_origin_access_list.h"
 #include "content/public/browser/storage_partition.h"
+#include "content/public/browser/web_contents_media_capture_id.h"
+#include "media/audio/audio_device_description.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/wrapper_shared_url_loader_factory.h"
 #include "services/network/public/mojom/network_context.mojom.h"
@@ -42,7 +44,6 @@
 #include "shell/browser/electron_download_manager_delegate.h"
 #include "shell/browser/electron_permission_manager.h"
 #include "shell/browser/net/resolve_proxy_helper.h"
-#include "shell/browser/pref_store_delegate.h"
 #include "shell/browser/protocol_registry.h"
 #include "shell/browser/special_storage_policy.h"
 #include "shell/browser/ui/inspectable_web_contents.h"
@@ -50,8 +51,13 @@
 #include "shell/browser/web_view_manager.h"
 #include "shell/browser/zoom_level_delegate.h"
 #include "shell/common/application_info.h"
+#include "shell/common/electron_constants.h"
 #include "shell/common/electron_paths.h"
+#include "shell/common/gin_converters/frame_converter.h"
+#include "shell/common/gin_helper/error_thrower.h"
 #include "shell/common/options_switches.h"
+#include "shell/common/thread_restrictions.h"
+#include "third_party/blink/public/mojom/mediastream/media_stream.mojom.h"
 
 #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
 #include "extensions/browser/browser_context_keyed_service_factories.h"
@@ -104,7 +110,8 @@ ElectronBrowserContext::browser_context_map() {
 ElectronBrowserContext::ElectronBrowserContext(const std::string& partition,
                                                bool in_memory,
                                                base::Value::Dict options)
-    : storage_policy_(base::MakeRefCounted<SpecialStoragePolicy>()),
+    : in_memory_pref_store_(new ValueMapPrefStore),
+      storage_policy_(base::MakeRefCounted<SpecialStoragePolicy>()),
       protocol_registry_(base::WrapUnique(new ProtocolRegistry)),
       in_memory_(in_memory),
       ssl_config_(network::mojom::SSLConfig::New()) {
@@ -158,12 +165,13 @@ ElectronBrowserContext::~ElectronBrowserContext() {
 
 void ElectronBrowserContext::InitPrefs() {
   auto prefs_path = GetPath().Append(FILE_PATH_LITERAL("Preferences"));
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  ScopedAllowBlockingForElectron allow_blocking;
   PrefServiceFactory prefs_factory;
   scoped_refptr<JsonPrefStore> pref_store =
       base::MakeRefCounted<JsonPrefStore>(prefs_path);
   pref_store->ReadPrefs();  // Synchronous.
   prefs_factory.set_user_prefs(pref_store);
+  prefs_factory.set_command_line_prefs(in_memory_pref_store());
 
 #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
   if (!in_memory_) {
@@ -204,20 +212,17 @@ void ElectronBrowserContext::InitPrefs() {
   language::LanguagePrefs::RegisterProfilePrefs(registry.get());
 #endif
 
-  prefs_ = prefs_factory.Create(
-      registry.get(),
-      std::make_unique<PrefStoreDelegate>(weak_factory_.GetWeakPtr()));
-  prefs_->UpdateCommandLinePrefStore(new ValueMapPrefStore);
+  prefs_ = prefs_factory.Create(registry.get());
 #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS) || \
     BUILDFLAG(ENABLE_BUILTIN_SPELLCHECKER)
   user_prefs::UserPrefs::Set(this, prefs_.get());
 #endif
 
 #if BUILDFLAG(ENABLE_BUILTIN_SPELLCHECKER)
-  auto* current_dictionaries =
-      prefs()->Get(spellcheck::prefs::kSpellCheckDictionaries);
+  base::Value::List current_dictionaries =
+      prefs()->GetList(spellcheck::prefs::kSpellCheckDictionaries).Clone();
   // No configured dictionaries, the default will be en-US
-  if (current_dictionaries->GetListDeprecated().empty()) {
+  if (current_dictionaries.empty()) {
     std::string default_code = spellcheck::GetCorrespondingSpellCheckLanguage(
         base::i18n::GetConfiguredLocale());
     if (!default_code.empty()) {
@@ -308,11 +313,6 @@ std::string ElectronBrowserContext::GetUserAgent() const {
   return user_agent_.value_or(ElectronBrowserClient::Get()->GetUserAgent());
 }
 
-absl::optional<std::string> ElectronBrowserContext::GetUserAgentOverride()
-    const {
-  return user_agent_;
-}
-
 predictors::PreconnectManager* ElectronBrowserContext::GetPreconnectManager() {
   if (!preconnect_manager_.get()) {
     preconnect_manager_ =
@@ -394,6 +394,13 @@ ElectronBrowserContext::GetStorageNotificationService() {
   return nullptr;
 }
 
+content::ReduceAcceptLanguageControllerDelegate*
+ElectronBrowserContext::GetReduceAcceptLanguageControllerDelegate() {
+  // Needs implementation
+  // Refs https://chromium-review.googlesource.com/c/chromium/src/+/3687391
+  return nullptr;
+}
+
 ResolveProxyHelper* ElectronBrowserContext::GetResolveProxyHelper() {
   if (!resolve_proxy_helper_) {
     resolve_proxy_helper_ = base::MakeRefCounted<ResolveProxyHelper>(this);
@@ -415,6 +422,131 @@ void ElectronBrowserContext::SetSSLConfig(network::mojom::SSLConfigPtr config) {
 void ElectronBrowserContext::SetSSLConfigClient(
     mojo::Remote<network::mojom::SSLConfigClient> client) {
   ssl_config_client_ = std::move(client);
+}
+
+void ElectronBrowserContext::SetDisplayMediaRequestHandler(
+    DisplayMediaRequestHandler handler) {
+  display_media_request_handler_ = handler;
+}
+
+void ElectronBrowserContext::DisplayMediaDeviceChosen(
+    const content::MediaStreamRequest& request,
+    content::MediaResponseCallback callback,
+    gin::Arguments* args) {
+  blink::mojom::StreamDevicesSetPtr stream_devices_set =
+      blink::mojom::StreamDevicesSet::New();
+  v8::Local<v8::Value> result;
+  if (!args->GetNext(&result) || result->IsNullOrUndefined()) {
+    std::move(callback).Run(
+        blink::mojom::StreamDevicesSet(),
+        blink::mojom::MediaStreamRequestResult::CAPTURE_FAILURE, nullptr);
+    return;
+  }
+  gin_helper::Dictionary result_dict;
+  if (!gin::ConvertFromV8(args->isolate(), result, &result_dict)) {
+    gin_helper::ErrorThrower(args->isolate())
+        .ThrowTypeError(
+            "Display Media Request streams callback must be called with null "
+            "or a valid object");
+    std::move(callback).Run(
+        blink::mojom::StreamDevicesSet(),
+        blink::mojom::MediaStreamRequestResult::CAPTURE_FAILURE, nullptr);
+    return;
+  }
+  stream_devices_set->stream_devices.emplace_back(
+      blink::mojom::StreamDevices::New());
+  blink::mojom::StreamDevices& devices = *stream_devices_set->stream_devices[0];
+  bool video_requested =
+      request.video_type != blink::mojom::MediaStreamType::NO_SERVICE;
+  bool audio_requested =
+      request.audio_type != blink::mojom::MediaStreamType::NO_SERVICE;
+  bool has_video = false;
+  if (video_requested && result_dict.Has("video")) {
+    gin_helper::Dictionary video_dict;
+    std::string id;
+    std::string name;
+    content::RenderFrameHost* rfh;
+    if (result_dict.Get("video", &video_dict) && video_dict.Get("id", &id) &&
+        video_dict.Get("name", &name)) {
+      devices.video_device =
+          blink::MediaStreamDevice(request.video_type, id, name);
+    } else if (result_dict.Get("video", &rfh)) {
+      devices.video_device = blink::MediaStreamDevice(
+          request.video_type,
+          content::WebContentsMediaCaptureId(rfh->GetProcess()->GetID(),
+                                             rfh->GetRoutingID())
+              .ToString(),
+          base::UTF16ToUTF8(
+              content::WebContents::FromRenderFrameHost(rfh)->GetTitle()));
+    } else {
+      gin_helper::ErrorThrower(args->isolate())
+          .ThrowTypeError(
+              "video must be a WebFrameMain or DesktopCapturerSource");
+      std::move(callback).Run(
+          blink::mojom::StreamDevicesSet(),
+          blink::mojom::MediaStreamRequestResult::CAPTURE_FAILURE, nullptr);
+      return;
+    }
+    has_video = true;
+  }
+  if (audio_requested && result_dict.Has("audio")) {
+    gin_helper::Dictionary audio_dict;
+    std::string id;
+    std::string name;
+    content::RenderFrameHost* rfh;
+    // NB. this is not permitted by the documentation, but is left here as an
+    // "escape hatch" for providing an arbitrary name/id if needed in the
+    // future.
+    if (result_dict.Get("audio", &audio_dict) && audio_dict.Get("id", &id) &&
+        audio_dict.Get("name", &name)) {
+      devices.audio_device =
+          blink::MediaStreamDevice(request.audio_type, id, name);
+    } else if (result_dict.Get("audio", &rfh)) {
+      devices.audio_device = blink::MediaStreamDevice(
+          request.audio_type,
+          content::WebContentsMediaCaptureId(rfh->GetProcess()->GetID(),
+                                             rfh->GetRoutingID(),
+                                             /* disable_local_echo= */ true)
+              .ToString(),
+          "Tab audio");
+    } else if (result_dict.Get("audio", &id)) {
+      devices.audio_device =
+          blink::MediaStreamDevice(request.audio_type, id, "System audio");
+    } else {
+      gin_helper::ErrorThrower(args->isolate())
+          .ThrowTypeError(
+              "audio must be a WebFrameMain, \"loopback\" or "
+              "\"loopbackWithMute\"");
+      std::move(callback).Run(
+          blink::mojom::StreamDevicesSet(),
+          blink::mojom::MediaStreamRequestResult::CAPTURE_FAILURE, nullptr);
+      return;
+    }
+  }
+
+  if ((video_requested && !has_video)) {
+    gin_helper::ErrorThrower(args->isolate())
+        .ThrowTypeError(
+            "Video was requested, but no video stream was provided");
+    std::move(callback).Run(
+        blink::mojom::StreamDevicesSet(),
+        blink::mojom::MediaStreamRequestResult::CAPTURE_FAILURE, nullptr);
+    return;
+  }
+
+  std::move(callback).Run(*stream_devices_set,
+                          blink::mojom::MediaStreamRequestResult::OK, nullptr);
+}
+
+bool ElectronBrowserContext::ChooseDisplayMediaDevice(
+    const content::MediaStreamRequest& request,
+    content::MediaResponseCallback callback) {
+  if (!display_media_request_handler_)
+    return false;
+  DisplayMediaResponseCallbackJs callbackJs =
+      base::BindOnce(&DisplayMediaDeviceChosen, request, std::move(callback));
+  display_media_request_handler_.Run(request, std::move(callbackJs));
+  return true;
 }
 
 void ElectronBrowserContext::GrantDevicePermission(
@@ -452,19 +584,22 @@ bool ElectronBrowserContext::DoesDeviceMatch(
     const base::Value* device_to_compare,
     blink::PermissionType permission_type) {
   if (permission_type ==
-      static_cast<blink::PermissionType>(
-          WebContentsPermissionHelper::PermissionType::HID)) {
-    if (device.GetDict().FindInt(kHidVendorIdKey) !=
-            device_to_compare->GetDict().FindInt(kHidVendorIdKey) ||
-        device.GetDict().FindInt(kHidProductIdKey) !=
-            device_to_compare->GetDict().FindInt(kHidProductIdKey)) {
+          static_cast<blink::PermissionType>(
+              WebContentsPermissionHelper::PermissionType::HID) ||
+      permission_type ==
+          static_cast<blink::PermissionType>(
+              WebContentsPermissionHelper::PermissionType::USB)) {
+    if (device.GetDict().FindInt(kDeviceVendorIdKey) !=
+            device_to_compare->GetDict().FindInt(kDeviceVendorIdKey) ||
+        device.GetDict().FindInt(kDeviceProductIdKey) !=
+            device_to_compare->GetDict().FindInt(kDeviceProductIdKey)) {
       return false;
     }
 
     const auto* serial_number =
-        device_to_compare->GetDict().FindString(kHidSerialNumberKey);
+        device_to_compare->GetDict().FindString(kDeviceSerialNumberKey);
     const auto* device_serial_number =
-        device.GetDict().FindString(kHidSerialNumberKey);
+        device.GetDict().FindString(kDeviceSerialNumberKey);
 
     if (serial_number && device_serial_number &&
         *device_serial_number == *serial_number)

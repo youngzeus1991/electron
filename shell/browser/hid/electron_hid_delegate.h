@@ -46,7 +46,8 @@ class ElectronHidDelegate : public content::HidDelegate,
       content::BrowserContext* browser_context) override;
   void AddObserver(content::BrowserContext* browser_context,
                    content::HidDelegate::Observer* observer) override;
-  void RemoveObserver(content::HidDelegate::Observer* observer) override;
+  void RemoveObserver(content::BrowserContext* browser_context,
+                      content::HidDelegate::Observer* observer) override;
   const device::mojom::HidDeviceInfo* GetDeviceInfo(
       content::BrowserContext* browser_context,
       const std::string& guid) override;
@@ -73,10 +74,7 @@ class ElectronHidDelegate : public content::HidDelegate,
       std::vector<blink::mojom::HidDeviceFilterPtr> exclusion_filters,
       content::HidChooser::Callback callback);
 
-  base::ScopedObservation<HidChooserContext,
-                          HidChooserContext::DeviceObserver,
-                          &HidChooserContext::AddDeviceObserver,
-                          &HidChooserContext::RemoveDeviceObserver>
+  base::ScopedObservation<HidChooserContext, HidChooserContext::DeviceObserver>
       device_observation_{this};
   base::ObserverList<content::HidDelegate::Observer> observer_list_;
 
@@ -88,5 +86,25 @@ class ElectronHidDelegate : public content::HidDelegate,
 };
 
 }  // namespace electron
+
+namespace base {
+
+template <>
+struct base::ScopedObservationTraits<
+    electron::HidChooserContext,
+    electron::HidChooserContext::DeviceObserver> {
+  static void AddObserver(
+      electron::HidChooserContext* source,
+      electron::HidChooserContext::DeviceObserver* observer) {
+    source->AddDeviceObserver(observer);
+  }
+  static void RemoveObserver(
+      electron::HidChooserContext* source,
+      electron::HidChooserContext::DeviceObserver* observer) {
+    source->RemoveDeviceObserver(observer);
+  }
+};
+
+}  // namespace base
 
 #endif  // ELECTRON_SHELL_BROWSER_HID_ELECTRON_HID_DELEGATE_H_

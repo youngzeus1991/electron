@@ -11,6 +11,7 @@
 #include "base/mac/bundle_locations.h"
 #include "base/mac/foundation_util.h"
 #include "base/mac/mac_util.h"
+#include "base/mac/mac_util.mm"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/sys_string_conversions.h"
@@ -63,6 +64,24 @@ std::u16string GetAppDisplayNameForProtocol(NSString* app_path) {
       [[NSFileManager defaultManager] displayNameAtPath:app_path];
   return base::SysNSStringToUTF16(app_display_name);
 }
+
+#if !IS_MAS_BUILD()
+bool CheckLoginItemStatus(bool* is_hidden) {
+  base::mac::LoginItemsFileList login_items;
+  if (!login_items.Initialize())
+    return false;
+
+  base::ScopedCFTypeRef<LSSharedFileListItemRef> item(
+      login_items.GetLoginItemForMainApp());
+  if (!item.get())
+    return false;
+
+  if (is_hidden)
+    *is_hidden = base::mac::IsHiddenLoginItem(item);
+
+  return true;
+}
+#endif
 
 }  // namespace
 
@@ -309,11 +328,10 @@ bool Browser::UpdateUserActivityState(const std::string& type,
 Browser::LoginItemSettings Browser::GetLoginItemSettings(
     const LoginItemSettings& options) {
   LoginItemSettings settings;
-#if defined(MAS_BUILD)
+#if IS_MAS_BUILD()
   settings.open_at_login = platform_util::GetLoginItemEnabled();
 #else
-  settings.open_at_login =
-      base::mac::CheckLoginItemStatus(&settings.open_as_hidden);
+  settings.open_at_login = CheckLoginItemStatus(&settings.open_as_hidden);
   settings.restore_state = base::mac::WasLaunchedAsLoginItemRestoreState();
   settings.opened_at_login = base::mac::WasLaunchedAsLoginOrResumeItem();
   settings.opened_as_hidden = base::mac::WasLaunchedAsHiddenLoginItem();
@@ -321,53 +339,17 @@ Browser::LoginItemSettings Browser::GetLoginItemSettings(
   return settings;
 }
 
-// Some logic here copied from GetLoginItemForApp in base/mac/mac_util.mm
-void RemoveFromLoginItems() {
-#pragma clang diagnostic push  // https://crbug.com/1154377
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-  base::ScopedCFTypeRef<LSSharedFileListRef> login_items(
-      LSSharedFileListCreate(NULL, kLSSharedFileListSessionLoginItems, NULL));
-  if (!login_items.get()) {
-    LOG(ERROR) << "Couldn't get a Login Items list.";
-    return;
-  }
-
-  base::scoped_nsobject<NSArray> login_items_array(
-      base::mac::CFToNSCast(LSSharedFileListCopySnapshot(login_items, NULL)));
-  NSURL* url = [NSURL fileURLWithPath:[base::mac::MainBundle() bundlePath]];
-  for (id login_item in login_items_array.get()) {
-    LSSharedFileListItemRef item =
-        reinterpret_cast<LSSharedFileListItemRef>(login_item);
-
-    // kLSSharedFileListDoNotMountVolumes is used so that we don't trigger
-    // mounting when it's not expected by a user. Just listing the login
-    // items should not cause any side-effects.
-    base::ScopedCFTypeRef<CFErrorRef> error;
-    base::ScopedCFTypeRef<CFURLRef> item_url_ref(
-        LSSharedFileListItemCopyResolvedURL(
-            item, kLSSharedFileListDoNotMountVolumes, error.InitializeInto()));
-
-    if (!error && item_url_ref) {
-      base::ScopedCFTypeRef<CFURLRef> item_url(item_url_ref);
-      if (CFEqual(item_url, url)) {
-        LSSharedFileListItemRemove(login_items, item);
-        return;
-      }
-    }
-  }
-#pragma clang diagnostic pop
-}
-
 void Browser::SetLoginItemSettings(LoginItemSettings settings) {
-#if defined(MAS_BUILD)
+#if IS_MAS_BUILD()
   if (!platform_util::SetLoginItemEnabled(settings.open_at_login)) {
     LOG(ERROR) << "Unable to set login item enabled on sandboxed app.";
   }
 #else
   if (settings.open_at_login) {
-    base::mac::AddToLoginItems(settings.open_as_hidden);
+    base::mac::AddToLoginItems(base::mac::MainBundlePath(),
+                               settings.open_as_hidden);
   } else {
-    RemoveFromLoginItems();
+    base::mac::RemoveFromLoginItems(base::mac::MainBundlePath());
   }
 #endif
 }
@@ -454,8 +436,8 @@ v8::Local<v8::Promise> Browser::DockShow(v8::Isolate* isolate) {
     dispatch_time_t one_ms = dispatch_time(DISPATCH_TIME_NOW, USEC_PER_SEC);
     dispatch_after(one_ms, dispatch_get_main_queue(), ^{
       TransformProcessType(&psn, kProcessTransformToForegroundApplication);
-      dispatch_time_t one_ms = dispatch_time(DISPATCH_TIME_NOW, USEC_PER_SEC);
-      dispatch_after(one_ms, dispatch_get_main_queue(), ^{
+      dispatch_time_t one_ms_2 = dispatch_time(DISPATCH_TIME_NOW, USEC_PER_SEC);
+      dispatch_after(one_ms_2, dispatch_get_main_queue(), ^{
         [[NSRunningApplication currentApplication]
             activateWithOptions:NSApplicationActivateIgnoringOtherApps];
         p.Resolve();
@@ -483,6 +465,13 @@ void Browser::DockSetIcon(v8::Isolate* isolate, v8::Local<v8::Value> icon) {
       return;
     image = native_image->image();
   }
+
+  // This is needed when this fn is called before the browser
+  // process is ready, since supported scales are normally set
+  // by ui::ResourceBundle::InitSharedInstance
+  // during browser process startup.
+  if (!is_ready())
+    gfx::ImageSkia::SetSupportedScales({1.0f});
 
   [[AtomApplication sharedApplication]
       setApplicationIconImage:image.AsNSImage()];

@@ -5,24 +5,15 @@ Subject: build: make libcxx_abi_unstable false for electron
 
 https://nornagon.medium.com/a-libc-odyssey-973e51649063
 
-diff --git a/build/config/c++/BUILD.gn b/build/config/c++/BUILD.gn
-index 09324583a2f98621fe328ec9f0178736dabe6d2b..d57c2c16ea3475c3ad77e81bdb9700ec2f64976a 100644
---- a/build/config/c++/BUILD.gn
-+++ b/build/config/c++/BUILD.gn
-@@ -29,10 +29,12 @@ config("runtime_library") {
-   #    on Windows, the increase is great enough that we go above the 4GB size
-   #    limit for PDBs (https://crbug.com/1327710#c5). To fix this, we set
-   #    _LIBCPP_ABI_NAMESPACE to a shorter value.
--  defines += [
--    "_LIBCPP_ABI_NAMESPACE=Cr",
--    "_LIBCPP_ABI_VERSION=2",
--  ]
-+  defines += [ "_LIBCPP_ABI_NAMESPACE=Cr" ]
-+
-+  if (!is_electron_build) {
-+    # This breaks native node modules
-+    defines += [ "_LIBCPP_ABI_VERSION=2" ]
-+  }
+diff --git a/buildtools/third_party/libc++/__config_site b/buildtools/third_party/libc++/__config_site
+index 2df8632ec45777b387988fea1f2932661ed5ff3c..8b9995a6144f77d2772debf0e772b5e6d4063929 100644
+--- a/buildtools/third_party/libc++/__config_site
++++ b/buildtools/third_party/libc++/__config_site
+@@ -12,7 +12,6 @@
+ //    limit for PDBs (https://crbug.com/1327710#c5). To fix this, we set
+ //    _LIBCPP_ABI_NAMESPACE to a shorter value.
+ #define _LIBCPP_ABI_NAMESPACE Cr
+-#define _LIBCPP_ABI_VERSION 2
  
-   if (!libcxx_is_shared) {
-     # Don't leak any symbols on a static build.
+ /* #undef _LIBCPP_ABI_FORCE_ITANIUM */
+ /* #undef _LIBCPP_ABI_FORCE_MICROSOFT */

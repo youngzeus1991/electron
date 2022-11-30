@@ -105,6 +105,8 @@ class Session : public gin::Wrappable<Session>,
                                  gin::Arguments* args);
   void SetDevicePermissionHandler(v8::Local<v8::Value> val,
                                   gin::Arguments* args);
+  void SetBluetoothPairingHandler(v8::Local<v8::Value> val,
+                                  gin::Arguments* args);
   v8::Local<v8::Promise> ClearHostResolverCache(gin::Arguments* args);
   v8::Local<v8::Promise> ClearAuthCache();
   void AllowNTLMCredentialsForDomains(const std::string& domains);
@@ -179,6 +181,9 @@ class Session : public gin::Wrappable<Session>,
 #endif
 
  private:
+  void SetDisplayMediaRequestHandler(v8::Isolate* isolate,
+                                     v8::Local<v8::Value> val);
+
   // Cached gin_helper::Wrappable objects.
   v8::Global<v8::Value> cookies_;
   v8::Global<v8::Value> protocol_;
