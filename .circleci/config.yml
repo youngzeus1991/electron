@@ -51,12 +51,14 @@ jobs:
     steps:
       - checkout
       - path-filtering/set-parameters:
-          base-revision: main
+          base-revision: << pipeline.git.base_revision >>
           mapping: |
             ^((?!docs/).)*$ run-build-mac true
             ^((?!docs/).)*$ run-build-linux true
             docs/.* run-docs-only true
             ^((?!docs/).)*$ run-docs-only false
+      - run: echo "This is pipeline base_revision << pipeline.git.base_revision >>"
+      - run: echo "This is pipeline branch << pipeline.git.branch >>"
       - run:
           command: |
             cd .circleci/config
