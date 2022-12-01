@@ -19,7 +19,7 @@ This document uses the following convention to categorize breaking changes:
 The deprecated `scroll-touch-begin`, `scroll-touch-end` and `scroll-touch-edge`
 events on BrowserWindow have been removed. Instead, use the newly available
 [`input-event` event](api/web-contents.md#event-input-event) on WebContents. You
-can see a diff example of this below:
+can see a diff example of this below. I am making another change here:
 
 ```js
 // Removed in Electron 23.0
