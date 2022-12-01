@@ -21,6 +21,7 @@
 int main(int argc, char* argv[]) {
   FixStdioStreams();
 
+// TODO(vertedinde): Adding a test comment
 #if BUILDFLAG(ENABLE_RUN_AS_NODE)
   char* indicator = getenv(electron::kRunAsNode);
   if (electron::fuses::IsRunAsNodeEnabled() && indicator &&
