@@ -502,6 +502,11 @@ step-fix-sync: &step-fix-sync
         echo 'infra/3pp/tools/ninja/${platform}' `gclient getdep --deps-file=src/DEPS -r 'src/third_party/ninja:infra/3pp/tools/ninja/${platform}'` > ninja_ensure_file
         sed -i '' "s/Updating depot_tools... //g" ninja_ensure_file
         cipd ensure --root src/third_party/ninja -ensure-file ninja_ensure_file
+
+        # Fix gn (wrong binary)
+        echo 'gn/gn/mac-${arch}' `gclient getdep --deps-file=src/DEPS -r 'src/buildtools/mac:gn/gn/mac-${arch}'` > gn_ensure_file
+        sed -i '' "s/Updating depot_tools... //g" gn_ensure_file
+        cipd ensure --root src/buildtools/mac -ensure-file gn_ensure_file
       fi
 
       cd src/third_party/angle
