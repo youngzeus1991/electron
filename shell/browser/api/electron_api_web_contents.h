@@ -46,6 +46,7 @@
 #include "ui/gfx/image/image.h"
 
 #if BUILDFLAG(ENABLE_PRINTING)
+#include "components/printing/browser/print_to_pdf/pdf_print_result.h"
 #include "shell/browser/printing/print_view_manager_electron.h"
 #endif
 
@@ -75,6 +76,8 @@ class Arguments;
 }
 
 class ExclusiveAccessManager;
+
+class SkRegion;
 
 namespace electron {
 
@@ -227,7 +230,7 @@ class WebContents : public ExclusiveAccessContext,
   // Print current page as PDF.
   v8::Local<v8::Promise> PrintToPDF(const base::Value& settings);
   void OnPDFCreated(gin_helper::Promise<v8::Local<v8::Value>> promise,
-                    PrintViewManagerElectron::PrintResult print_result,
+                    print_to_pdf::PdfPrintResult print_result,
                     scoped_refptr<base::RefCountedMemory> data);
 #endif
 
@@ -436,6 +439,8 @@ class WebContents : public ExclusiveAccessContext,
 
   // content::RenderWidgetHost::InputEventObserver:
   void OnInputEvent(const blink::WebInputEvent& event) override;
+
+  SkRegion* draggable_region() { return draggable_region_.get(); }
 
   // disable copy
   WebContents(const WebContents&) = delete;
@@ -817,6 +822,8 @@ class WebContents : public ExclusiveAccessContext,
 
   // Stores the frame thats currently in fullscreen, nullptr if there is none.
   content::RenderFrameHost* fullscreen_frame_ = nullptr;
+
+  std::unique_ptr<SkRegion> draggable_region_;
 
   base::WeakPtrFactory<WebContents> weak_factory_{this};
 };

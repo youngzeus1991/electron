@@ -17,9 +17,14 @@
 #include "content/public/browser/desktop_media_id.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "extensions/browser/app_window/size_constraints.h"
+#include "shell/browser/draggable_region_provider.h"
 #include "shell/browser/native_window_observer.h"
+#include "shell/browser/ui/inspectable_web_contents_view.h"
+#include "shell/common/api/api.mojom.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/views/widget/widget_delegate.h"
+
+class SkRegion;
 
 namespace base {
 class DictionaryValue;
@@ -46,6 +51,10 @@ namespace electron {
 
 class ElectronMenuModel;
 class NativeBrowserView;
+
+namespace api {
+class BrowserView;
+}
 
 #if BUILDFLAG(IS_MAC)
 typedef NSView* NativeWindowHandle;
@@ -160,6 +169,7 @@ class NativeWindow : public base::SupportsUserData,
   virtual bool IsTabletMode() const;
   virtual void SetBackgroundColor(SkColor color) = 0;
   virtual SkColor GetBackgroundColor() = 0;
+  virtual void InvalidateShadow();
   virtual void SetHasShadow(bool has_shadow) = 0;
   virtual bool HasShadow() = 0;
   virtual void SetOpacity(const double opacity) = 0;
@@ -217,6 +227,12 @@ class NativeWindow : public base::SupportsUserData,
   virtual absl::optional<gfx::Point> GetTrafficLightPosition() const = 0;
   virtual void RedrawTrafficLights() = 0;
   virtual void UpdateFrame() = 0;
+#endif
+
+// whether windows should be ignored by mission control
+#if BUILDFLAG(IS_MAC)
+  virtual bool IsHiddenInMissionControl() = 0;
+  virtual void SetHiddenInMissionControl(bool hidden) = 0;
 #endif
 
   // Touchbar API
@@ -367,7 +383,13 @@ class NativeWindow : public base::SupportsUserData,
 
   int32_t window_id() const { return next_id_; }
 
+  int NonClientHitTest(const gfx::Point& point);
+  void AddDraggableRegionProvider(DraggableRegionProvider* provider);
+  void RemoveDraggableRegionProvider(DraggableRegionProvider* provider);
+
  protected:
+  friend class api::BrowserView;
+
   NativeWindow(const gin_helper::Dictionary& options, NativeWindow* parent);
 
   // views::WidgetDelegate:
@@ -447,6 +469,8 @@ class NativeWindow : public base::SupportsUserData,
 
   // The browser view layer.
   std::list<NativeBrowserView*> browser_views_;
+
+  std::list<DraggableRegionProvider*> draggable_region_providers_;
 
   // Observers of this window.
   base::ObserverList<NativeWindowObserver> observers_;

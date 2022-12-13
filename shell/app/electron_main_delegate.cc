@@ -40,6 +40,7 @@
 #include "shell/common/logging.h"
 #include "shell/common/options_switches.h"
 #include "shell/common/platform_util.h"
+#include "shell/common/thread_restrictions.h"
 #include "shell/renderer/electron_renderer_client.h"
 #include "shell/renderer/electron_sandboxed_renderer_client.h"
 #include "shell/utility/electron_content_utility_client.h"
@@ -58,12 +59,11 @@
 
 #if BUILDFLAG(IS_LINUX)
 #include "base/nix/xdg_util.h"
-#include "components/crash/core/app/breakpad_linux.h"
 #include "v8/include/v8-wasm-trap-handler-posix.h"
 #include "v8/include/v8.h"
 #endif
 
-#if !defined(MAS_BUILD)
+#if !IS_MAS_BUILD()
 #include "components/crash/core/app/crash_switches.h"  // nogncheck
 #include "components/crash/core/app/crashpad.h"        // nogncheck
 #include "components/crash/core/common/crash_key.h"
@@ -195,7 +195,7 @@ bool ElectronPathProvider(int key, base::FilePath* result) {
   }
 
   // TODO(bauerb): http://crbug.com/259796
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  ScopedAllowBlockingForElectron allow_blocking;
   if (create_dir && !base::PathExists(cur) && !base::CreateDirectory(cur)) {
     return false;
   }
@@ -302,7 +302,7 @@ absl::optional<int> ElectronMainDelegate::BasicStartupComplete() {
                << " is not supported. See https://crbug.com/638180.";
 #endif
 
-#if defined(MAS_BUILD)
+#if IS_MAS_BUILD()
   // In MAS build we are using --disable-remote-core-animation.
   //
   // According to ccameron:
@@ -346,7 +346,7 @@ void ElectronMainDelegate::PreSandboxStartup() {
                                    process_type == ::switches::kZygoteProcess);
 #endif
 
-#if !defined(MAS_BUILD)
+#if !IS_MAS_BUILD()
   crash_reporter::InitializeCrashKeys();
 #endif
 
@@ -358,7 +358,7 @@ void ElectronMainDelegate::PreSandboxStartup() {
     LoadResourceBundle(locale);
   }
 
-#if BUILDFLAG(IS_WIN) || (BUILDFLAG(IS_MAC) && !defined(MAS_BUILD))
+#if BUILDFLAG(IS_WIN) || (BUILDFLAG(IS_MAC) && !IS_MAS_BUILD())
   // In the main process, we wait for JS to call crashReporter.start() before
   // initializing crashpad. If we're in the renderer, we want to initialize it
   // immediately at boot.
@@ -372,20 +372,16 @@ void ElectronMainDelegate::PreSandboxStartup() {
   // Zygote needs to call InitCrashReporter() in RunZygote().
   if (process_type != ::switches::kZygoteProcess && !process_type.empty()) {
     ElectronCrashReporterClient::Create();
-    if (crash_reporter::IsCrashpadEnabled()) {
-      if (command_line->HasSwitch(
-              crash_reporter::switches::kCrashpadHandlerPid)) {
-        crash_reporter::InitializeCrashpad(false, process_type);
-        crash_reporter::SetFirstChanceExceptionHandler(
-            v8::TryHandleWebAssemblyTrapPosix);
-      }
-    } else {
-      breakpad::InitCrashReporter(process_type);
+    if (command_line->HasSwitch(
+            crash_reporter::switches::kCrashpadHandlerPid)) {
+      crash_reporter::InitializeCrashpad(false, process_type);
+      crash_reporter::SetFirstChanceExceptionHandler(
+          v8::TryHandleWebAssemblyTrapPosix);
     }
   }
 #endif
 
-#if !defined(MAS_BUILD)
+#if !IS_MAS_BUILD()
   crash_keys::SetCrashKeysFromCommandLine(*command_line);
   crash_keys::SetPlatformCrashKey();
 #endif
@@ -503,15 +499,10 @@ void ElectronMainDelegate::ZygoteForked() {
       base::CommandLine::ForCurrentProcess();
   std::string process_type =
       command_line->GetSwitchValueASCII(::switches::kProcessType);
-  if (crash_reporter::IsCrashpadEnabled()) {
-    if (command_line->HasSwitch(
-            crash_reporter::switches::kCrashpadHandlerPid)) {
-      crash_reporter::InitializeCrashpad(false, process_type);
-      crash_reporter::SetFirstChanceExceptionHandler(
-          v8::TryHandleWebAssemblyTrapPosix);
-    }
-  } else {
-    breakpad::InitCrashReporter(process_type);
+  if (command_line->HasSwitch(crash_reporter::switches::kCrashpadHandlerPid)) {
+    crash_reporter::InitializeCrashpad(false, process_type);
+    crash_reporter::SetFirstChanceExceptionHandler(
+        v8::TryHandleWebAssemblyTrapPosix);
   }
 
   // Reset the command line for the newly spawned process.

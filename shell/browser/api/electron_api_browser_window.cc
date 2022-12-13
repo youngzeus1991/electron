@@ -73,17 +73,6 @@ BrowserWindow::BrowserWindow(gin::Arguments* args,
     web_preferences.Set(options::kShow, show);
   }
 
-  bool titleBarOverlay = false;
-  options.Get(options::ktitleBarOverlay, &titleBarOverlay);
-  if (titleBarOverlay) {
-    std::string enabled_features = "";
-    if (web_preferences.Get(options::kEnableBlinkFeatures, &enabled_features)) {
-      enabled_features += ",";
-    }
-    enabled_features += features::kWebAppWindowControlsOverlay.name;
-    web_preferences.Set(options::kEnableBlinkFeatures, enabled_features);
-  }
-
   // Copy the webContents option to webPreferences.
   v8::Local<v8::Value> value;
   if (options.Get("webContents", &value)) {
@@ -94,6 +83,7 @@ BrowserWindow::BrowserWindow(gin::Arguments* args,
   gin::Handle<WebContentsView> web_contents_view =
       WebContentsView::Create(isolate, web_preferences);
   DCHECK(web_contents_view.get());
+  window_->AddDraggableRegionProvider(web_contents_view.get());
 
   // Save a reference of the WebContents.
   gin::Handle<WebContents> web_contents =
@@ -110,11 +100,6 @@ BrowserWindow::BrowserWindow(gin::Arguments* args,
 
   // Install the content view after BaseWindow's JS code is initialized.
   SetContentView(gin::CreateHandle<View>(isolate, web_contents_view.get()));
-
-#if BUILDFLAG(IS_MAC)
-  OverrideNSWindowContentView(
-      web_contents->inspectable_web_contents()->GetView());
-#endif
 
   // Init window after everything has been setup.
   window()->InitFromOptions(options);
@@ -160,11 +145,6 @@ void BrowserWindow::OnCloseContents() {
 void BrowserWindow::OnRendererResponsive(content::RenderProcessHost*) {
   window_unresponsive_closure_.Cancel();
   Emit("responsive");
-}
-
-void BrowserWindow::OnDraggableRegionsUpdated(
-    const std::vector<mojom::DraggableRegionPtr>& regions) {
-  UpdateDraggableRegions(regions);
 }
 
 void BrowserWindow::OnSetContentBounds(const gfx::Rect& rect) {
@@ -218,7 +198,7 @@ void BrowserWindow::OnCloseButtonClicked(bool* prevent_default) {
 
   // Trigger beforeunload events for associated BrowserViews.
   for (NativeBrowserView* view : window_->browser_views()) {
-    auto* vwc = view->web_contents();
+    auto* vwc = view->GetInspectableWebContents()->GetWebContents();
     auto* api_web_contents = api::WebContents::From(vwc);
 
     // Required to make beforeunload handler work.
@@ -266,19 +246,6 @@ void BrowserWindow::OnWindowIsKeyChanged(bool is_key) {
     rwhv->SetActive(is_key);
   window()->SetActive(is_key);
 #endif
-}
-
-void BrowserWindow::OnWindowResize() {
-#if BUILDFLAG(IS_MAC)
-  if (!draggable_regions_.empty()) {
-    UpdateDraggableRegions(draggable_regions_);
-  } else {
-    for (NativeBrowserView* view : window_->browser_views()) {
-      view->UpdateDraggableRegions(view->GetDraggableRegions());
-    }
-  }
-#endif
-  BaseWindow::OnWindowResize();
 }
 
 void BrowserWindow::OnWindowLeaveFullScreen() {
@@ -349,42 +316,6 @@ void BrowserWindow::SetBrowserView(
   BaseWindow::ResetBrowserViews();
   if (browser_view)
     BaseWindow::AddBrowserView(*browser_view);
-#if BUILDFLAG(IS_MAC)
-  UpdateDraggableRegions(draggable_regions_);
-#endif
-}
-
-void BrowserWindow::AddBrowserView(gin::Handle<BrowserView> browser_view) {
-  BaseWindow::AddBrowserView(browser_view);
-#if BUILDFLAG(IS_MAC)
-  UpdateDraggableRegions(draggable_regions_);
-#endif
-}
-
-void BrowserWindow::RemoveBrowserView(gin::Handle<BrowserView> browser_view) {
-  BaseWindow::RemoveBrowserView(browser_view);
-#if BUILDFLAG(IS_MAC)
-  UpdateDraggableRegions(draggable_regions_);
-#endif
-}
-
-void BrowserWindow::SetTopBrowserView(gin::Handle<BrowserView> browser_view,
-                                      gin_helper::Arguments* args) {
-  BaseWindow::SetTopBrowserView(browser_view, args);
-#if BUILDFLAG(IS_MAC)
-  UpdateDraggableRegions(draggable_regions_);
-#endif
-}
-
-void BrowserWindow::ResetBrowserViews() {
-  BaseWindow::ResetBrowserViews();
-#if BUILDFLAG(IS_MAC)
-  UpdateDraggableRegions(draggable_regions_);
-#endif
-}
-
-void BrowserWindow::OnDevToolsResized() {
-  UpdateDraggableRegions(draggable_regions_);
 }
 
 void BrowserWindow::FocusOnWebView() {

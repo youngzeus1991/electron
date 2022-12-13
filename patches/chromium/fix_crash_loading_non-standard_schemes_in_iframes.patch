@@ -17,10 +17,10 @@ policy->CanCommitOriginAndUrl.
 Upstreamed at https://chromium-review.googlesource.com/c/chromium/src/+/3856266.
 
 diff --git a/content/browser/renderer_host/navigation_request.cc b/content/browser/renderer_host/navigation_request.cc
-index c672ad5573a2a8f89d203a88cba2a53e52b1d7fb..fcec9c7dd1fd33be068c05b84cd52401be02b079 100644
+index 6a4ec58bb50bae8fd65057c1fccd3c45647ec15e..21e922ad0092988b170070a1324fe6a18f574723 100644
 --- a/content/browser/renderer_host/navigation_request.cc
 +++ b/content/browser/renderer_host/navigation_request.cc
-@@ -6642,10 +6642,11 @@ std::pair<url::Origin, std::string> NavigationRequest::
+@@ -6731,10 +6731,11 @@ NavigationRequest::GetOriginForURLLoaderFactoryAfterResponseWithDebugInfo() {
    if (IsForMhtmlSubframe())
      return origin_with_debug_info;
  
@@ -37,12 +37,12 @@ index c672ad5573a2a8f89d203a88cba2a53e52b1d7fb..fcec9c7dd1fd33be068c05b84cd52401
  }
  
 diff --git a/content/browser/renderer_host/render_frame_host_impl.h b/content/browser/renderer_host/render_frame_host_impl.h
-index ed79f436761c21367ddfaf044e4c749f87975b64..153168ec693a0bec8eb83c204f10989afcef11c7 100644
+index 2ba5f3353251ead1d5db21b2ff8c276b489ae2dd..edc8e9f407879f5fc462faa7329b5cb2b719ecfc 100644
 --- a/content/browser/renderer_host/render_frame_host_impl.h
 +++ b/content/browser/renderer_host/render_frame_host_impl.h
-@@ -2612,6 +2612,17 @@ class CONTENT_EXPORT RenderFrameHostImpl
-     kIframeNestedWithinFencedFrame
-   };
+@@ -2767,6 +2767,17 @@ class CONTENT_EXPORT RenderFrameHostImpl
+     user_activation_state_.Activate(notification_type);
+   }
  
 +  // Returns whether the given origin and URL is allowed to commit in the
 +  // current RenderFrameHost. The |url| is used to ensure it matches the origin
@@ -58,7 +58,7 @@ index ed79f436761c21367ddfaf044e4c749f87975b64..153168ec693a0bec8eb83c204f10989a
   protected:
    friend class RenderFrameHostFactory;
  
-@@ -2957,17 +2968,6 @@ class CONTENT_EXPORT RenderFrameHostImpl
+@@ -3081,17 +3092,6 @@ class CONTENT_EXPORT RenderFrameHostImpl
    // relevant.
    void ResetWaitingState();
  

@@ -21,7 +21,6 @@
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/sequenced_task_runner_handle.h"
-#include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
@@ -123,6 +122,7 @@
 #include "shell/common/node_includes.h"
 #include "shell/common/options_switches.h"
 #include "shell/common/process_util.h"
+#include "shell/common/thread_restrictions.h"
 #include "shell/common/v8_value_serializer.h"
 #include "storage/browser/file_system/isolated_context.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -172,6 +172,7 @@
 #if BUILDFLAG(ENABLE_PRINTING)
 #include "chrome/browser/printing/print_view_manager_base.h"
 #include "components/printing/browser/print_manager_utils.h"
+#include "components/printing/browser/print_to_pdf/pdf_print_result.h"
 #include "components/printing/browser/print_to_pdf/pdf_print_utils.h"
 #include "printing/backend/print_backend.h"  // nogncheck
 #include "printing/mojom/print.mojom.h"      // nogncheck
@@ -196,7 +197,7 @@
 #include "content/public/browser/plugin_service.h"
 #endif
 
-#ifndef MAS_BUILD
+#if !IS_MAS_BUILD()
 #include "chrome/browser/hang_monitor/hang_crash_dump.h"  // nogncheck
 #endif
 
@@ -445,7 +446,7 @@ std::pair<std::string, std::u16string> GetDeviceNameToUse(
 #if BUILDFLAG(IS_WIN)
   // Blocking is needed here because Windows printer drivers are oftentimes
   // not thread-safe and have to be accessed on the UI thread.
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  ScopedAllowBlockingForElectron allow_blocking;
 #endif
 
   if (!device_name.empty()) {
@@ -1874,8 +1875,7 @@ void WebContents::MessageHost(const std::string& channel,
 
 void WebContents::UpdateDraggableRegions(
     std::vector<mojom::DraggableRegionPtr> regions) {
-  for (ExtendedWebContentsObserver& observer : observers_)
-    observer.OnDraggableRegionsUpdated(regions);
+  draggable_region_ = DraggableRegionsToSkRegion(regions);
 }
 
 void WebContents::DidStartNavigation(
@@ -2395,7 +2395,7 @@ void WebContents::ForcefullyCrashRenderer() {
     rph->ForceCrash();
 #else
     // Try to generate a crash report for the hung process.
-#ifndef MAS_BUILD
+#if !IS_MAS_BUILD()
     CrashDumpHungChildProcess(rph->GetProcess().Handle());
 #endif
     rph->Shutdown(content::RESULT_CODE_HUNG);
@@ -2857,12 +2857,12 @@ v8::Local<v8::Promise> WebContents::PrintToPDF(const base::Value& settings) {
       settings.GetDict().FindBool("displayHeaderFooter");
   auto print_background = settings.GetDict().FindBool("shouldPrintBackgrounds");
   auto scale = settings.GetDict().FindDouble("scale");
-  auto paper_width = settings.GetDict().FindInt("paperWidth");
-  auto paper_height = settings.GetDict().FindInt("paperHeight");
-  auto margin_top = settings.GetDict().FindIntByDottedPath("margins.top");
-  auto margin_bottom = settings.GetDict().FindIntByDottedPath("margins.bottom");
-  auto margin_left = settings.GetDict().FindIntByDottedPath("margins.left");
-  auto margin_right = settings.GetDict().FindIntByDottedPath("margins.right");
+  auto paper_width = settings.GetDict().FindDouble("paperWidth");
+  auto paper_height = settings.GetDict().FindDouble("paperHeight");
+  auto margin_top = settings.GetDict().FindDouble("marginTop");
+  auto margin_bottom = settings.GetDict().FindDouble("marginBottom");
+  auto margin_left = settings.GetDict().FindDouble("marginLeft");
+  auto margin_right = settings.GetDict().FindDouble("marginRight");
   auto page_ranges = *settings.GetDict().FindString("pageRanges");
   auto header_template = *settings.GetDict().FindString("headerTemplate");
   auto footer_template = *settings.GetDict().FindString("footerTemplate");
@@ -2902,12 +2902,12 @@ v8::Local<v8::Promise> WebContents::PrintToPDF(const base::Value& settings) {
 
 void WebContents::OnPDFCreated(
     gin_helper::Promise<v8::Local<v8::Value>> promise,
-    PrintViewManagerElectron::PrintResult print_result,
+    print_to_pdf::PdfPrintResult print_result,
     scoped_refptr<base::RefCountedMemory> data) {
-  if (print_result != PrintViewManagerElectron::PrintResult::kPrintSuccess) {
+  if (print_result != print_to_pdf::PdfPrintResult::kPrintSuccess) {
     promise.RejectWithErrorMessage(
         "Failed to generate PDF: " +
-        PrintViewManagerElectron::PrintResultToString(print_result));
+        print_to_pdf::PdfPrintResultToString(print_result));
     return;
   }
 
@@ -3167,7 +3167,7 @@ void WebContents::StartDrag(const gin_helper::Dictionary& item,
 
   // Start dragging.
   if (!files.empty()) {
-    base::CurrentThread::ScopedNestableTaskAllower allow;
+    base::CurrentThread::ScopedAllowApplicationTasksInNativeNestedLoop allow;
     DragFileItems(files, icon->image(), web_contents()->GetNativeView());
   } else {
     gin_helper::ErrorThrower(args->isolate())
@@ -3546,7 +3546,7 @@ v8::Local<v8::Promise> WebContents::TakeHeapSnapshot(
   gin_helper::Promise<void> promise(isolate);
   v8::Local<v8::Promise> handle = promise.GetHandle();
 
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  ScopedAllowBlockingForElectron allow_blocking;
   base::File file(file_path,
                   base::File::FLAG_CREATE_ALWAYS | base::File::FLAG_WRITE);
   if (!file.IsValid()) {
